@@ -1,9 +1,6 @@
 import type { Holding, Period, ChartDataPoint } from '../types';
 import { fetchChartHistory } from './apiClient';
-import {
-  getPeriodStartDate,
-  periodToUnixRange,
-} from './periods';
+import { getPeriodStartDate } from './periods';
 import { rebaseReturnSeries, todayStr } from './calculations';
 
 function getPurchasePrice(h: Holding): number | null {
@@ -33,23 +30,15 @@ function findNearestPrior(
 
 async function fetchSymbolChart(
   symbol: string,
-  period: Period,
-  periodStart: string | null
+  periodStart: string,
+  periodEnd: string
 ): Promise<ChartDataPoint[]> {
-  const today = todayStr();
+  return fetchChartHistory(symbol, { start: periodStart, end: periodEnd });
+}
 
-  if (periodStart) {
-    return fetchChartHistory(symbol, { start: periodStart, end: today });
-  }
-
-  if (period === 'MAX') {
-    return fetchChartHistory(symbol, { range: 'max' });
-  }
-
-  const { period1, period2 } = periodToUnixRange(period);
-  const start = new Date(period1 * 1000).toISOString().slice(0, 10);
-  const end = new Date(period2 * 1000).toISOString().slice(0, 10);
-  return fetchChartHistory(symbol, { start, end });
+export interface CustomDateRange {
+  start: string;
+  end: string;
 }
 
 /**
@@ -58,27 +47,41 @@ async function fetchSymbolChart(
  */
 export async function buildPortfolioReturnSeries(
   holdings: Holding[],
-  period: Period
+  period: Period,
+  customRange?: CustomDateRange
 ): Promise<Array<{ date: string; returnPct: number }>> {
   const eligible = holdings.filter((h) => getPurchasePrice(h) != null);
   if (eligible.length === 0) return [];
 
   const today = todayStr();
-  let periodStart = getPeriodStartDate(period);
+  let periodStart: string;
+  let periodEnd: string;
 
-  if (period === 'MAX' || periodStart == null) {
-    periodStart = eligible.reduce(
-      (min, h) => (h.purchaseDate < min ? h.purchaseDate : min),
-      eligible[0].purchaseDate
-    );
+  if (customRange) {
+    periodStart = customRange.start;
+    periodEnd = customRange.end;
+  } else if (period === 'CUSTOM') {
+    return [];
+  } else {
+    periodEnd = today;
+    let start = getPeriodStartDate(period);
+    if (period === 'MAX' || start == null) {
+      start = eligible.reduce(
+        (min, h) => (h.purchaseDate < min ? h.purchaseDate : min),
+        eligible[0].purchaseDate
+      );
+    }
+    periodStart = start;
   }
+
+  if (periodStart > periodEnd) return [];
 
   const uniqueSymbols = [...new Set(eligible.map((h) => h.symbol))];
   const symbolCharts = new Map<string, ChartDataPoint[]>();
 
   await Promise.all(
     uniqueSymbols.map(async (symbol) => {
-      const data = await fetchSymbolChart(symbol, period, periodStart);
+      const data = await fetchSymbolChart(symbol, periodStart, periodEnd);
       symbolCharts.set(symbol, data);
     })
   );
@@ -86,7 +89,7 @@ export async function buildPortfolioReturnSeries(
   const dateSet = new Set<string>();
   for (const data of symbolCharts.values()) {
     for (const p of data) {
-      if (p.date >= periodStart && p.date <= today) {
+      if (p.date >= periodStart && p.date <= periodEnd) {
         dateSet.add(p.date);
       }
     }

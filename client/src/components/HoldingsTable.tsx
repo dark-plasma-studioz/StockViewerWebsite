@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Pencil,
   Trash2,
@@ -91,6 +91,34 @@ export function HoldingsTable({
   );
 
   const groups = buildGroups(holdingsWithStats);
+
+  const totals = useMemo(() => {
+    if (groups.length === 0) return null;
+
+    const totalInvested = groups.reduce((s, g) => s + g.totalInvested, 0);
+    const allHaveValue = groups.every((g) => g.totalValue != null);
+    const totalValue = allHaveValue
+      ? groups.reduce((s, g) => s + (g.totalValue ?? 0), 0)
+      : null;
+    const totalGainLoss =
+      totalValue != null ? totalValue - totalInvested : null;
+    const weightedReturnPct =
+      totalInvested > 0 && totalGainLoss != null
+        ? (totalGainLoss / totalInvested) * 100
+        : null;
+    const hasDayChange = groups.some((g) => g.totalDayChange != null);
+    const totalDayChange = hasDayChange
+      ? groups.reduce((s, g) => s + (g.totalDayChange ?? 0), 0)
+      : null;
+
+    return {
+      totalInvested,
+      totalValue,
+      totalGainLoss,
+      weightedReturnPct,
+      totalDayChange,
+    };
+  }, [groups]);
 
   function toggleSymbol(symbol: string) {
     setExpandedSymbols((prev) => {
@@ -280,6 +308,65 @@ export function HoldingsTable({
                   : []),
               ];
             })}
+            {totals && (
+              <tr className="bg-gray-800/60 border-t border-gray-700 font-semibold">
+                <td className="px-5 py-3 text-gray-300">Total</td>
+                <td className="px-4 py-3 text-right text-gray-200 font-mono">
+                  {formatCAD(totals.totalInvested)}
+                </td>
+                <td className="px-4 py-3 text-right font-mono">
+                  {totals.totalValue != null ? (
+                    <span className="text-white">{formatCAD(totals.totalValue)}</span>
+                  ) : (
+                    <span className="text-gray-600 text-xs">—</span>
+                  )}
+                </td>
+                <td
+                  className={`px-4 py-3 text-right font-mono ${
+                    totals.totalGainLoss == null
+                      ? 'text-gray-500'
+                      : totals.totalGainLoss >= 0
+                        ? 'text-emerald-400'
+                        : 'text-red-400'
+                  }`}
+                >
+                  {totals.totalGainLoss != null
+                    ? formatCAD(totals.totalGainLoss)
+                    : '—'}
+                </td>
+                <td
+                  className={`px-4 py-3 text-right font-mono ${
+                    totals.weightedReturnPct == null
+                      ? 'text-gray-500'
+                      : totals.weightedReturnPct >= 0
+                        ? 'text-emerald-400'
+                        : 'text-red-400'
+                  }`}
+                >
+                  {totals.weightedReturnPct != null
+                    ? formatPct(totals.weightedReturnPct)
+                    : '—'}
+                </td>
+                <td
+                  className={`px-4 py-3 text-right font-mono text-xs hidden sm:table-cell ${
+                    totals.totalDayChange == null
+                      ? 'text-gray-600'
+                      : totals.totalDayChange >= 0
+                        ? 'text-emerald-400'
+                        : 'text-red-400'
+                  }`}
+                >
+                  {totals.totalDayChange != null
+                    ? (totals.totalDayChange >= 0 ? '+' : '') +
+                      totals.totalDayChange.toLocaleString('en-CA', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
+                    : '—'}
+                </td>
+                <td className="px-4 py-3" />
+              </tr>
+            )}
           </tbody>
         </table>
       )}

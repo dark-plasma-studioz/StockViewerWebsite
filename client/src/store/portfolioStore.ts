@@ -15,6 +15,10 @@ interface SellHoldingInput {
   soldProceedsCAD: number;
   soldPriceOverride?: number;
   effectiveSoldPrice?: number;
+  /** Shares/units sold — if less than total, triggers a partial sell */
+  soldShares?: number;
+  /** Cost basis of the sold portion */
+  soldCostBasisCAD?: number;
 }
 
 interface PortfolioState {
@@ -130,20 +134,78 @@ export const usePortfolioStore = create<PortfolioState>()(
         set((s) => ({ holdings: s.holdings.filter((h) => h.id !== id) })),
 
       sellHolding: (id, sellData) =>
-        set((s) => ({
-          holdings: s.holdings.map((h) =>
-            h.id === id
-              ? {
-                  ...h,
-                  status: 'sold' as const,
-                  soldDate: sellData.soldDate,
-                  soldProceedsCAD: sellData.soldProceedsCAD,
-                  soldPriceOverride: sellData.soldPriceOverride,
-                  effectiveSoldPrice: sellData.effectiveSoldPrice,
-                }
-              : h
-          ),
-        })),
+        set((s) => {
+          const holding = s.holdings.find((h) => h.id === id);
+          if (!holding) return s;
+
+          const purchasePrice =
+            holding.purchasePriceOverride ?? holding.effectivePurchasePrice;
+          const totalUnits =
+            holding.shares ??
+            (purchasePrice != null && purchasePrice > 0
+              ? holding.amountInvestedCAD / purchasePrice
+              : null);
+
+          const soldShares = sellData.soldShares;
+          const isPartial =
+            soldShares != null &&
+            totalUnits != null &&
+            soldShares > 0 &&
+            soldShares < totalUnits - 1e-6;
+
+          if (isPartial && totalUnits != null && soldShares != null) {
+            const ratio = soldShares / totalUnits;
+            const soldCostBasis =
+              sellData.soldCostBasisCAD ?? holding.amountInvestedCAD * ratio;
+            const remainingUnits = totalUnits - soldShares;
+            const remainingInvested = holding.amountInvestedCAD - soldCostBasis;
+
+            const soldHolding: Holding = {
+              ...holding,
+              id: nanoid(),
+              status: 'sold',
+              amountInvestedCAD: soldCostBasis,
+              shares: soldShares,
+              purchaseInputMode: 'shares',
+              soldDate: sellData.soldDate,
+              soldProceedsCAD: sellData.soldProceedsCAD,
+              soldPriceOverride: sellData.soldPriceOverride,
+              effectiveSoldPrice: sellData.effectiveSoldPrice,
+              createdAt: new Date().toISOString(),
+            };
+
+            return {
+              holdings: [
+                ...s.holdings.map((h) =>
+                  h.id === id
+                    ? {
+                        ...h,
+                        amountInvestedCAD: remainingInvested,
+                        shares: remainingUnits,
+                        purchaseInputMode: 'shares' as const,
+                      }
+                    : h
+                ),
+                soldHolding,
+              ],
+            };
+          }
+
+          return {
+            holdings: s.holdings.map((h) =>
+              h.id === id
+                ? {
+                    ...h,
+                    status: 'sold' as const,
+                    soldDate: sellData.soldDate,
+                    soldProceedsCAD: sellData.soldProceedsCAD,
+                    soldPriceOverride: sellData.soldPriceOverride,
+                    effectiveSoldPrice: sellData.effectiveSoldPrice,
+                  }
+                : h
+            ),
+          };
+        }),
 
       setPrices: (prices) =>
         set((s) => ({ prices: { ...s.prices, ...prices } })),

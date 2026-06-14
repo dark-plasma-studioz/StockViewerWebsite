@@ -2,7 +2,7 @@ import type { Period } from '../types';
 import { todayStr } from './calculations';
 
 export const PORTFOLIO_PERIODS: Period[] = [
-  '1D', '5D', '1W', '1M', '1Y', 'YTD', '5Y', 'MAX',
+  '1D', '5D', '1W', '1M', '1Y', 'YTD', '5Y', 'MAX', 'CUSTOM',
 ];
 
 export const HOLDING_PERIODS: Period[] = [
@@ -20,6 +20,7 @@ export const PERIOD_LABELS: Record<Period, string> = {
   '5Y': '5Y',
   MAX: 'Max',
   SINCE_BUY: 'Since buy',
+  CUSTOM: 'Custom',
 };
 
 function addDays(dateStr: string, days: number): string {
@@ -66,6 +67,8 @@ export function getPeriodStartDate(
       return null;
     case 'SINCE_BUY':
       return sinceBuyDate ?? null;
+    case 'CUSTOM':
+      return null;
     default:
       return null;
   }
@@ -100,6 +103,7 @@ export function periodToYahooRange(period: Period): string {
       return '5y';
     case 'MAX':
     case 'SINCE_BUY':
+    case 'CUSTOM':
       return 'max';
     default:
       return '1mo';

@@ -11,6 +11,7 @@ import {
   ReferenceLine,
   Legend,
 } from 'recharts';
+import { CHART_GREEN, CHART_RED, splitSignedSeries, lastNumericValue, lineColorForValue } from '../lib/chartHelpers';
 import { fetchChartHistory } from '../lib/apiClient';
 import { PeriodSelector } from './PeriodSelector';
 import {
@@ -26,16 +27,6 @@ import {
 } from '../lib/calculations';
 import { usePortfolioStore } from '../store/portfolioStore';
 import type { HoldingWithStats, Period, ChartDataPoint } from '../types';
-
-// Each lot gets its own coloured return line overlaid on the stock chart
-const LOT_COLORS = [
-  '#10b981', // emerald
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#f97316', // orange
-];
 
 interface SymbolDetailModalProps {
   holdings: HoldingWithStats[];
@@ -156,6 +147,40 @@ export function SymbolDetailModal({
   const periodReturn =
     chartData.length >= 2 ? chartData[chartData.length - 1].stockReturn : null;
 
+  const mergedChartData = useMemo(() => {
+    if (chartData.length === 0) return [];
+
+    const signedStock = splitSignedSeries(
+      chartData.map((d) => ({ date: d.date, value: d.stockReturn }))
+    );
+    const stockByDate = new Map(signedStock.map((s) => [s.date, s]));
+    const baseByDate = new Map(chartData.map((d) => [d.date, d]));
+
+    const allDates = [
+      ...new Set([
+        ...chartData.map((d) => d.date),
+        ...signedStock.map((s) => s.date),
+      ]),
+    ].sort();
+
+    return allDates.map((date) => {
+      const signed = stockByDate.get(date);
+      const base = baseByDate.get(date);
+      const point: Record<string, string | number | null> = { date };
+      if (signed) {
+        point.positive = signed.positive;
+        point.negative = signed.negative;
+      }
+      if (base) {
+        holdings.forEach((_, i) => {
+          const key = `lot_${i}`;
+          if (base[key] != null) point[key] = base[key] as number;
+        });
+      }
+      return point;
+    });
+  }, [chartData, holdings]);
+
   // Which lot purchase dates fall in the current chart range?
   const entryDates = holdings
     .map((h) => h.purchaseDate)
@@ -238,10 +263,11 @@ export function SymbolDetailModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800/60">
-                {holdings.map((h, i) => {
+                {holdings.map((h) => {
                   const pp = h.purchasePriceOverride ?? h.effectivePurchasePrice;
                   const returnPct = h.gainLossPct ?? h.realizedGainPct;
                   const positive = (returnPct ?? 0) >= 0;
+                  const dotColor = positive ? CHART_GREEN : CHART_RED;
                   return (
                     <tr
                       key={h.id}
@@ -252,7 +278,7 @@ export function SymbolDetailModal({
                         <div className="flex items-center gap-1.5">
                           <span
                             className="w-2 h-2 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: LOT_COLORS[i % LOT_COLORS.length] }}
+                            style={{ backgroundColor: dotColor }}
                           />
                           {h.purchaseDate}
                           {h.status === 'sold' && (
@@ -320,11 +346,11 @@ export function SymbolDetailModal({
                 <span className={periodReturn >= 0 ? 'text-emerald-400' : 'text-red-400'}>
                   {formatPct(periodReturn)}
                 </span>
-                {' '}· coloured lines = each lot's % gain from entry
+                {' '}· green/red lines = each lot's % gain since entry
               </p>
             )}
             <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <LineChart data={mergedChartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                 <XAxis
                   dataKey="date"
@@ -366,29 +392,43 @@ export function SymbolDetailModal({
                     strokeDasharray="3 3"
                   />
                 ))}
-                {/* Stock price line */}
                 <Line
                   type="monotone"
-                  dataKey="stockReturn"
-                  stroke="#3b82f6"
+                  dataKey="positive"
+                  stroke={CHART_GREEN}
                   strokeWidth={2}
-                  dot={false}
-                  name="Stock"
                   strokeDasharray="6 3"
+                  dot={false}
+                  connectNulls={false}
+                  name="Stock"
                 />
-                {/* One line per lot */}
-                {holdings.map((h, i) => (
-                  <Line
-                    key={h.id}
-                    type="monotone"
-                    dataKey={`lot_${i}`}
-                    stroke={LOT_COLORS[i % LOT_COLORS.length]}
-                    strokeWidth={2}
-                    dot={false}
-                    connectNulls={false}
-                    name={`${h.purchaseDate}${h.label ? ` (${h.label})` : ''}`}
-                  />
-                ))}
+                <Line
+                  type="monotone"
+                  dataKey="negative"
+                  stroke={CHART_RED}
+                  strokeWidth={2}
+                  strokeDasharray="6 3"
+                  dot={false}
+                  connectNulls={false}
+                  legendType="none"
+                />
+                {holdings.map((h, i) => {
+                  const lotKey = `lot_${i}`;
+                  const lastVal = lastNumericValue(mergedChartData, lotKey);
+                  const stroke = lineColorForValue(lastVal ?? 0);
+                  return (
+                    <Line
+                      key={h.id}
+                      type="monotone"
+                      dataKey={lotKey}
+                      stroke={stroke}
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls={false}
+                      name={`${h.purchaseDate}${h.label ? ` (${h.label})` : ''}`}
+                    />
+                  );
+                })}
                 <Legend
                   formatter={(v) => (
                     <span className="text-xs text-gray-400">{v}</span>
@@ -397,8 +437,7 @@ export function SymbolDetailModal({
               </LineChart>
             </ResponsiveContainer>
             <p className="text-xs text-gray-600 mt-1">
-              Blue dashed = stock % change from period start · coloured = lot's % gain
-              since entry, rebased to 0 at lot start
+              Dashed = stock % change · solid = lot gain (green if up, red if down)
             </p>
           </>
         )}

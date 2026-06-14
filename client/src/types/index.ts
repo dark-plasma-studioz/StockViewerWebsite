@@ -75,7 +75,8 @@ export type Period =
   | 'YTD'
   | '5Y'
   | 'MAX'
-  | 'SINCE_BUY';
+  | 'SINCE_BUY'
+  | 'CUSTOM';
 
 export type HoldingsFilter = 'active' | 'sold' | 'both';
 

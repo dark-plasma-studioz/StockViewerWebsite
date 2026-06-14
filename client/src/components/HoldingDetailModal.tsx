@@ -10,6 +10,7 @@ import {
   CartesianGrid,
   ReferenceLine,
 } from 'recharts';
+import { CHART_GREEN, CHART_RED, splitSignedSeries } from '../lib/chartHelpers';
 import { fetchChartHistory } from '../lib/apiClient';
 import { PeriodSelector } from './PeriodSelector';
 import {
@@ -110,6 +111,14 @@ export function HoldingDetailModal({ holding, onClose }: HoldingDetailModalProps
   const periodReturn = chartData.length >= 2
     ? chartData[chartData.length - 1].returnPct
     : null;
+
+  const signedChartData = useMemo(
+    () =>
+      splitSignedSeries(
+        chartData.map((d) => ({ date: d.date, value: d.returnPct }))
+      ),
+    [chartData]
+  );
 
   // Personal total return (all-time, from purchase price)
   const personalReturn = stats.gainLossPct ?? stats.realizedGainPct ?? null;
@@ -232,7 +241,7 @@ export function HoldingDetailModal({ holding, onClose }: HoldingDetailModalProps
               )}
             </div>
             <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <LineChart data={signedChartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                 <XAxis
                   dataKey="date"
@@ -252,7 +261,8 @@ export function HoldingDetailModal({ holding, onClose }: HoldingDetailModalProps
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
-                    const val = payload[0].value as number;
+                    const val = payload.find((p) => p.value != null)?.value as number;
+                    if (val == null) return null;
                     return (
                       <div className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs shadow-xl">
                         <p className="text-gray-400 mb-1">{label}</p>
@@ -279,11 +289,21 @@ export function HoldingDetailModal({ holding, onClose }: HoldingDetailModalProps
                 )}
                 <Line
                   type="monotone"
-                  dataKey="returnPct"
-                  stroke="#3b82f6"
+                  dataKey="positive"
+                  stroke={CHART_GREEN}
                   strokeWidth={2}
                   dot={false}
+                  connectNulls={false}
                   name="Stock return"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="negative"
+                  stroke={CHART_RED}
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls={false}
+                  legendType="none"
                 />
               </LineChart>
             </ResponsiveContainer>

@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
 import { usePortfolioStore } from '../store/portfolioStore';
-import { buildPortfolioReturnSeries } from '../lib/portfolioHistory';
+import { buildPortfolioReturnSeries, type CustomDateRange } from '../lib/portfolioHistory';
 import type { Period } from '../types';
 
-export function usePortfolioReturnHistory(period: Period) {
+export function usePortfolioReturnHistory(
+  period: Period,
+  customRange?: CustomDateRange | null
+) {
   const activeProfileId = usePortfolioStore((s) => s.activeProfileId);
   const holdings = usePortfolioStore((s) => s.holdings);
   const [data, setData] = useState<Array<{ date: string; returnPct: number }>>([]);
@@ -15,6 +18,8 @@ export function usePortfolioReturnHistory(period: Period) {
     .map((h) => `${h.id}:${h.symbol}:${h.purchaseDate}:${h.status}`)
     .join('|');
 
+  const rangeKey = customRange ? `${customRange.start}:${customRange.end}` : '';
+
   useEffect(() => {
     let cancelled = false;
 
@@ -25,11 +30,27 @@ export function usePortfolioReturnHistory(period: Period) {
         return;
       }
 
+      if (period === 'CUSTOM' && !customRange) {
+        setData([]);
+        setLoading(false);
+        return;
+      }
+
+      if (customRange && (!customRange.start || !customRange.end)) {
+        setData([]);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError(null);
 
       try {
-        const series = await buildPortfolioReturnSeries(profileHoldings, period);
+        const series = await buildPortfolioReturnSeries(
+          profileHoldings,
+          period,
+          customRange ?? undefined
+        );
         if (!cancelled) {
           setData(series);
           setLoading(false);
@@ -47,7 +68,7 @@ export function usePortfolioReturnHistory(period: Period) {
     return () => {
       cancelled = true;
     };
-  }, [period, activeProfileId, holdingsKey]);
+  }, [period, activeProfileId, holdingsKey, rangeKey, customRange?.start, customRange?.end]);
 
   return { data, loading, error };
 }
